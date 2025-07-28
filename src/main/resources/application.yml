@@ -9,6 +9,9 @@ logging:
 
 server:
   port: 8081
+#  error:
+#    whitelabel:
+#      enabled: false
 
 spring:
   datasource:
@@ -23,4 +26,8 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.MySQL8Dialect
+#  mvc:
+#    web:
+#      resources:
+#        add-mappings: false
 
