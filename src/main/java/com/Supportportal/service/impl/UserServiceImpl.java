@@ -6,6 +6,8 @@ import com.Supportportal.exception.domain.EmailExistException;
 import com.Supportportal.exception.domain.UserNotFoundException;
 import com.Supportportal.exception.domain.UsernameExistException;
 import com.Supportportal.repository.UserRepository;
+import com.Supportportal.service.EmailService;
+import com.Supportportal.service.LoginAttemptService;
 import com.Supportportal.service.UserService;
 import jakarta.transaction.Transactional;
 import org.apache.commons.lang3.RandomStringUtils;
@@ -21,8 +23,10 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
+import javax.mail.MessagingException;
 import java.util.Date;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 
 import static com.Supportportal.constant.UserImplConstant.*;
 import static com.Supportportal.enumeration.Role.ROLE_USER;
@@ -34,11 +38,15 @@ public class UserServiceImpl implements UserService, UserDetailsService {
     private Logger LOGGER = LoggerFactory.getLogger(getClass());
     private UserRepository userRepository;
     private BCryptPasswordEncoder passwordEncoder;
+    private LoginAttemptService loginAttemptService;
+    private EmailService emailService;
 
     @Autowired
-    public UserServiceImpl(UserRepository userRepository, BCryptPasswordEncoder passwordEncoder) {
+    public UserServiceImpl(UserRepository userRepository, BCryptPasswordEncoder passwordEncoder,LoginAttemptService loginAttemptService, EmailService emailService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.loginAttemptService = loginAttemptService;
+        this.emailService = emailService;
     }
 
     @Override
@@ -48,6 +56,7 @@ public class UserServiceImpl implements UserService, UserDetailsService {
             LOGGER.error(NO_USER_FOUND_BY_USERNAME + username);
             throw new UsernameNotFoundException(NO_USER_FOUND_BY_USERNAME + username);
         } else {
+            validateLoginAttempt(user);
           user.setLastLoginDateDisplay(user.getLastLoginDateDisplay());
           user.setLastLoginDate(user.getLastLoginDate());
           userRepository.save(user);
@@ -58,8 +67,20 @@ public class UserServiceImpl implements UserService, UserDetailsService {
 
     }
 
+    private void validateLoginAttempt(User user)  {
+        if(user.isNotLocked()){
+            if(loginAttemptService.hasExceededMaxAttempts(user.getUsername())){
+                user.setNotLocked(false);
+            }else {
+                user.setNotLocked(true);
+            }
+        }else {
+            loginAttemptService.evictUserFromLoginAttemptCache(user.getUsername());
+        }
+    }
+
     @Override
-    public User register(String firstName, String lastName, String username, String email) throws UserNotFoundException, EmailExistException, UsernameExistException {
+    public User register(String firstName, String lastName, String username, String email) throws UserNotFoundException, EmailExistException, UsernameExistException, MessagingException {
         validateNewUsernameAndEmail(StringUtils.EMPTY,username,email);
         User user = new User();
         user.setUserId(generateUserId());
@@ -78,6 +99,7 @@ public class UserServiceImpl implements UserService, UserDetailsService {
         user.setProfileImageUrl(getTemporaryProfileImageurl());
         userRepository.save(user);
         LOGGER.info("New user password: " + password);
+        emailService.sendNewPasswordEmail(firstName,password,email);
         return user;
     }
 
